@@ -4,6 +4,7 @@ __pycache__/
 testai.py
 *.py[codz]
 *$py.class
+config.py
 
 # C extensions
 *.so
