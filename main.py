@@ -9,6 +9,7 @@ from WXBizMsgCrypt import WXBizMsgCrypt
 from config import sCorpID, sEncodingAESKey, sToken
 import asyncio
 import func
+import rag  # RAG 系統模塊
 import json
 import logging
 import sys
@@ -36,6 +37,14 @@ async def consume_queue(queue: asyncio.Queue) -> None:
 
 # 使用FastAPI的生命周期管理队列任务
 async def app_lifespan(app: FastAPI) -> None:
+    # 1. 初始化 RAG 系統
+    try:
+        await rag.initialize_rag_system()
+    except Exception as e:
+        logging.error(f"RAG 初始化失敗: {e}")
+        # 不阻止應用啟動
+
+    # 2. 啟動隊列消費任務
     consume_task = asyncio.create_task(consume_queue(queue))
     try:
         yield

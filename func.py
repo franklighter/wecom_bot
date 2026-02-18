@@ -1,6 +1,8 @@
 import json
 import asyncio
 import httpx
+import logging
+import rag  # RAG 系統模塊
 from config import sCorpID, sCorpsecret, dashscope_api_key
 from openai import AsyncOpenAI
 
@@ -15,35 +17,39 @@ User_chat_context = {}
 example_context = [
     {
         "role": "system",
-        "content": """你是信息科技系统HELPDESK客服助理，负责协助用户解决系统相关问题。
+        "content": """你是信息科技系統HELPDESK客服助理，負責協助用戶解決系統相關問題。
 
-工作职责：
-1. 当用户提出系统相关问题时，你会根据已记录的技术资料查找相关问题和对应的解决方式
-2. 如果在技术资料中找不到相关信息，你会礼貌地建议用户寻求人工服务
-3. 当用户明确表示需要人工服务、转人工、找客服等意图时，或者当问题超出你的能力范围时，需要转接人工
+工作職責：
+1. 當用戶提出系統相關問題時，系統會自動從知識庫中檢索相關的技術資料
+2. 你必須基於【參考資料】中的內容來回答用戶問題
+3. 如果【參考資料】中包含相關信息，請提供清晰、準確的技術指導
+4. 如果【參考資料】中沒有相關信息，請禮貌地建議用戶轉接人工服務
+5. 當用戶明確表示需要人工服務、轉人工、找客服等意圖時，需要轉接人工
 
-转接人工的回复格式：
-当需要转接人工时，你的回复必须严格按照以下格式：
+重要原則：
+- 必須基於【參考資料】回答，不要編造或猜測信息
+- 如果參考資料不足以回答問題，明確告知用戶並建議轉人工
+- 保持專業、正式的語氣
+- 提供具體的操作步驟和解決方案
 
-已提交人工服务工单，客服人员将尽快与您联系。
+轉接人工的回復格式：
+當需要轉接人工時，你的回復必須嚴格按照以下格式：
+
+已提交人工服務工單，客服人員將盡快與您聯繫。
 
 [ESCALATION_DATA]
 {
-  "issue_summary": "简要描述用户报告的具体问题（1-2句话）",
-  "user_context": "总结用户之前的对话背景和已尝试的解决方案（如有）"
+  "issue_summary": "簡要描述用戶報告的具體問題（1-2句話）",
+  "user_context": "總結用戶之前的對話背景和已嘗試的解決方案（如有）"
 }
 [/ESCALATION_DATA]
 
 注意：
-- issue_summary 应该清晰描述用户当前遇到的问题
-- user_context 应该包含对话历史中的关键信息
-- JSON必须是有效格式，使用双引号
-- 如果是首次对话就要求转人工，user_context 可以写"首次咨询，直接请求人工服务"
-
-正常回复要求：
-- 保持专业、正式的语气
-- 提供清晰、准确的技术指导
-- 如遇不确定的问题，建议寻求人工协助"""
+- issue_summary 應該清晰描述用戶當前遇到的問題
+- user_context 應該包含對話歷史中的關鍵信息
+- JSON必須是有效格式，使用雙引號
+- 如果是首次對話就要求轉人工，user_context 可以寫"首次咨詢，直接請求人工服務"
+"""
     },
     {
         "role": "assistant",
@@ -64,13 +70,15 @@ async def access_tokens():
         )
         return response.json()["access_token"]
 
-async def ai_chat(original_format):
+async def ai_chat(original_format, temperature=0.7):
     """
     Send chat messages to DashScope API (qwen-plus model)
 
     Args:
         original_format: List of message dicts with 'role' and 'content' keys
                         Format: [{"role": "user/assistant", "content": "..."}]
+        temperature: Sampling temperature (0.0-1.0). Lower values = more deterministic.
+                    Default 0.7 for normal chat, use 0.1 for RAG-based responses.
 
     Returns:
         str: AI response text or error message
@@ -80,6 +88,7 @@ async def ai_chat(original_format):
         response = await ai_client.chat.completions.create(
             model="qwen-plus",
             messages=original_format,
+            temperature=temperature,
             timeout=15.0,
         )
 
@@ -133,15 +142,59 @@ async def chat_msg(to_user_id: str, recived_msg: str, agentid: str):
         result = "已重置上下文"
     #正常对话
     elif to_user_id in User_chat_context:
-        User_chat_context[to_user_id].append({"role": "user", "content": recived_msg})
-        result = await ai_chat(User_chat_context[to_user_id])
+        # RAG 檢索邏輯
+        retrieval_result = await rag.retrieve_relevant_context(recived_msg)
+
+        if retrieval_result["has_context"]:
+            # 找到相關內容，注入到用戶消息
+            user_message_with_context = f"""用户问题: {recived_msg}
+
+【参考资料】
+{retrieval_result["context"]}
+
+请根据以上参考资料回答用户问题。"""
+            logging.info(f"RAG 檢索成功，找到 {len(retrieval_result['sources'])} 個相關文檔")
+        else:
+            # 未找到相關內容，提示 AI 轉人工
+            user_message_with_context = f"""用户问题: {recived_msg}
+
+【参考资料】
+未在知识库中找到相关信息。
+
+请告知用户知识库中暂无相关信息，建议转接人工服务。"""
+            logging.info("RAG 檢索未找到相關內容")
+
+        User_chat_context[to_user_id].append({"role": "user", "content": user_message_with_context})
+        result = await ai_chat(User_chat_context[to_user_id], temperature=0.1)
         User_chat_context[to_user_id].append({"role": "assistant", "content": result})
-    #新用户
     #新用户
     else:
         User_chat_context[to_user_id] = example_context.copy()
-        User_chat_context[to_user_id].append({"role": "user", "content": recived_msg})
-        result = await ai_chat(User_chat_context[to_user_id])
+
+        # RAG 檢索邏輯
+        retrieval_result = await rag.retrieve_relevant_context(recived_msg)
+
+        if retrieval_result["has_context"]:
+            # 找到相關內容，注入到用戶消息
+            user_message_with_context = f"""用户问题: {recived_msg}
+
+【参考资料】
+{retrieval_result["context"]}
+
+请根据以上参考资料回答用户问题。"""
+            logging.info(f"RAG 檢索成功，找到 {len(retrieval_result['sources'])} 個相關文檔")
+        else:
+            # 未找到相關內容，提示 AI 轉人工
+            user_message_with_context = f"""用户问题: {recived_msg}
+
+【参考资料】
+未在知识库中找到相关信息。
+
+请告知用户知识库中暂无相关信息，建议转接人工服务。"""
+            logging.info("RAG 檢索未找到相關內容")
+
+        User_chat_context[to_user_id].append({"role": "user", "content": user_message_with_context})
+        result = await ai_chat(User_chat_context[to_user_id], temperature=0.1)
         User_chat_context[to_user_id].append({"role": "assistant", "content": result})
 
     # Check if escalation is needed
