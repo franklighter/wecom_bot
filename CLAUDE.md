@@ -17,7 +17,7 @@ pip3 install -r requirements.txt
 ```bash
 python3 main.py
 ```
-Server runs on `0.0.0.0:6880`
+Server runs on `0.0.0.0:6880` using uvicorn ASGI server
 
 ### Configuration
 Edit `config.py` with:
@@ -42,8 +42,9 @@ Edit `config.py` with:
 - `GET /`: URL verification endpoint for WeChat Work setup
 - `POST /wechat`: Message webhook with signature verification
 - Async queue (`asyncio.Queue`) for non-blocking message processing
-- `consume_queue()`: Background task that processes messages from queue
+- `consume_queue()`: Background task that processes messages from queue (managed via FastAPI lifespan)
 - Special commands: "ping", "help" return immediate responses
+- CORS enabled for all origins
 
 **func.py** - AI integration and message handling
 - `chat_msg()`: Main message handler with context management
@@ -66,11 +67,17 @@ Edit `config.py` with:
 
 **ierror.py** - Error code constants for crypto operations
 
+**testai.py** - Test/example file (not part of main application)
+- Demonstrates DashScope API usage for sentiment analysis
+- WARNING: Contains hardcoded API key - do not commit with real credentials
+- Not used by main bot application
+
 ### Context Management
-- Conversations are stored per `AgentID` (not per user)
+- Conversations are stored per user (`to_user_id`/`FromUserName`)
+- Each user has independent conversation context
 - Context persists in memory (lost on restart)
 - Each user starts with `example_context` preset
-- Send "new" to reset context for current agent
+- Send "new" to reset your own context
 
 ### API Integration
 - WeChat Work API: `https://qyapi.weixin.qq.com/cgi-bin/`
@@ -87,8 +94,10 @@ Edit `config.py` with:
 
 ### Security
 - Never commit filled `config.py` with real credentials
+- `testai.py` contains hardcoded API key - remove before committing
 - Message encryption/decryption follows WeChat Work official protocol
 - Signature verification on all incoming messages
+- CORS middleware allows all origins (`allow_origins=['*']`) - restrict in production
 
 ### Limitations
 - No persistent storage - context lost on restart

@@ -66,21 +66,21 @@ async def chat_msg(to_user_id: str, recived_msg: str, agentid: str):
     name = to_user_id
     #重置上下文
     if recived_msg == "new":
-        User_chat_context[agentid] = example_context.copy()
-        print(User_chat_context[agentid])
+        User_chat_context[to_user_id] = example_context.copy()
+        print(User_chat_context[to_user_id])
         result = "已重置上下文"
     #正常对话
-    elif agentid in User_chat_context:
-        User_chat_context[agentid].append({"role": "user", "content": recived_msg})
-        result = await ai_chat(User_chat_context[agentid])
-        User_chat_context[agentid].append({"role": "assistant", "content": result})
+    elif to_user_id in User_chat_context:
+        User_chat_context[to_user_id].append({"role": "user", "content": recived_msg})
+        result = await ai_chat(User_chat_context[to_user_id])
+        User_chat_context[to_user_id].append({"role": "assistant", "content": result})
     #新用户
     #新用户
     else:
-        User_chat_context[agentid] = example_context.copy()
-        User_chat_context[agentid].append({"role": "user", "content": recived_msg})
-        result = await ai_chat(User_chat_context[agentid])
-        User_chat_context[agentid].append({"role": "assistant", "content": result})
+        User_chat_context[to_user_id] = example_context.copy()
+        User_chat_context[to_user_id].append({"role": "user", "content": recived_msg})
+        result = await ai_chat(User_chat_context[to_user_id])
+        User_chat_context[to_user_id].append({"role": "assistant", "content": result})
 
     print("请求结果：", result)
     send_data = json.dumps(
