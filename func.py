@@ -13,10 +13,24 @@ ai_client = AsyncOpenAI(
 User_chat_context = {}
 # 预设词自己修改
 example_context = [
-    {"role": "user", "content": "角色扮演，现在你是鱼开发的机器人，名叫咸鱼"},
+    {
+        "role": "system",
+        "content": """你是信息科技系统HELPDESK客服助理，负责协助用户解决系统相关问题。
+
+工作职责：
+1. 当用户提出系统相关问题时，你会根据已记录的技术资料查找相关问题和对应的解决方式
+2. 如果在技术资料中找不到相关信息，你会礼貌地建议用户寻求人工服务
+3. 当用户明确表示需要人工服务、转人工、找客服等意图时，你只需回复：00000
+
+回复要求：
+- 保持专业、正式的语气
+- 提供清晰、准确的技术指导
+- 如遇不确定的问题，建议寻求人工协助
+- 识别到转人工意图时，仅回复：00000"""
+    },
     {
         "role": "assistant",
-        "content": "你好，我是咸鱼，一个鱼开发的机器人。我很高兴见到你。\n\n作为咸鱼，我可以帮助你完成很多事情。",
+        "content": "您好，我是信息科技系统HELPDESK客服助理。请问有什么系统问题需要我协助解决？",
     },
 ]
 access_token = httpx.get(
@@ -61,6 +75,15 @@ async def ai_chat(original_format):
         print(f"DashScope API Error: {e}")
         return "An error occurred while processing the request."
 
+def escalate(message: str):
+    """
+    Handle escalation to human service
+
+    Args:
+        message: Message to log
+    """
+    print(f"[ESCALATION] {message}")
+
 async def chat_msg(to_user_id: str, recived_msg: str, agentid: str):
     global access_token
     name = to_user_id
@@ -81,6 +104,10 @@ async def chat_msg(to_user_id: str, recived_msg: str, agentid: str):
         User_chat_context[to_user_id].append({"role": "user", "content": recived_msg})
         result = await ai_chat(User_chat_context[to_user_id])
         User_chat_context[to_user_id].append({"role": "assistant", "content": result})
+
+    # Check if escalation is needed
+    if result.strip() == "00000":
+        escalate("Hello")
 
     print("请求结果：", result)
     send_data = json.dumps(
