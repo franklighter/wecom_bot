@@ -111,6 +111,7 @@ async def Verify(msg_signature: str, timestamp: str, nonce: str, echostr: str):
         sys.exit(1)
     return int(sReplyEchoStr)
 
+@app.post("/")
 @app.post("/wechat")
 async def main(
     msg_signature: str,
